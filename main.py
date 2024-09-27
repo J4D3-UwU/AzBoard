@@ -69,11 +69,11 @@ def get_xinput_state(controller_index:int=0):
         return None
     return state
 
-def get_key_from_value(dictionary, value):
+def get_key_from_value(dictionary:dict, value:str):
     for key, val in dictionary.items():
         if val == value:
             return key
-    return value  # Return None if the value is not found
+    return value
 
 
 def get_key_presses(all=False):
@@ -219,7 +219,10 @@ def save_profile(profile:dict):
 def on_scroll(x:int, y:int, dx:int, dy:int):
     global scroll_time
     scroll_time = time.time()
-    if dy>0: #On Scroll Up
+
+    if dy == 0:
+        pass
+    elif dy>0: #On Scroll Up
         app.set_image_visibility(f"mouse_scroll_down", False)
         app.set_image_visibility(f"mouse_scroll_up", True)
     else:    #On Scroll Down
@@ -227,7 +230,7 @@ def on_scroll(x:int, y:int, dx:int, dy:int):
         app.set_image_visibility(f"mouse_scroll_down", True)
 
 
-def input_handler(input:list|str, on:bool):
+def input_handler(input:int|str, on:bool):
     for key, values in profile["azeron_keys"].items():
         if input in values:
             app.set_image_visibility(f"azeron_button_{key}", on)
@@ -513,7 +516,13 @@ class ImageOverlayWindow:
             except:
                 pass
         self.set_button_labels = []
-        label = tk.Label(self.edit_profile_window, text=f"{button_type}: {button}")
+        if button == "sl":
+            text = f"{button_type}: scroll left"
+        elif button == "sr":
+            text = f"{button_type}: scroll right"
+        else:
+            text = f"{button_type}: {button}"
+        label = tk.Label(self.edit_profile_window, text=text)
         label.place(x=1, y=282)
         self.button_edit_items.append(label)
 
@@ -557,14 +566,11 @@ class ImageOverlayWindow:
         
 
         def on_select(event):
-            # Get the widget that triggered the event
             listbox = event.widget
-            # Get the index of the selected item
             index = listbox.curselection()
             if not index:
                 return
             
-            # Get the actual item selected
             selected_item = listbox.get(index)
             key_type, key_name = listbox._name.split("|")
             #print(f"Type: {key_type} Key: {key_name} Selected: {selected_item}")
@@ -670,7 +676,7 @@ class ImageOverlayWindow:
             label = tk.Label(self.edit_profile_window, text="Select Input Mode:")
             label.place(x=1, y=300)
             self.button_edit_items.append(label)
-            # Create the toggle switch using radio buttons
+
             if type(self.new_profile[self.thumbstick_key]) == str:
                 self.stick_type = tk.StringVar(value="XInput")
                 self.active_thumbstick = tk.StringVar(value=self.new_profile[self.thumbstick_key])
@@ -720,10 +726,8 @@ class ImageOverlayWindow:
 
         else:
             if button_type == "mouse":
-                # is a mouse button
                 key_type="mouse_keys"
             else:
-                # is an azeron key
                 key_type="azeron_keys"
         
             listbox = tk.Listbox(self.edit_profile_window, name=f"{key_type}|{button}")
@@ -804,7 +808,7 @@ class ImageOverlayWindow:
         self.set_image_visibility("azeron_edit_cyborg2", True)
         self.set_image_visibility("azeron_edit_classic_20", True)
         self.set_image_visibility("cyro_edit_base", True)
-        # Add more widgets and functionality to the edit window here
+        
         def delete_window():
             self.set_image_visibility("azeron_edit_base", False)
             self.set_image_visibility("azeron_edit_classic", False)
@@ -851,9 +855,12 @@ class ImageOverlayWindow:
             tk.Button(self.edit_profile_window, text="G8",      command=lambda: self.button_edit_stuff("g8",     "mouse"), width=3, height=2).place(x=520, y=40)
             tk.Button(self.edit_profile_window, text="G7",      command=lambda: self.button_edit_stuff("g7",     "mouse"), width=3, height=2).place(x=520, y=80)
 
-            tk.Button(self.edit_profile_window, text="middle",  command=lambda: self.button_edit_stuff("middle", "mouse"), width=5, height=2).place(x=603, y=60)
-            tk.Button(self.edit_profile_window, text="G9",      command=lambda: self.button_edit_stuff("g9",     "mouse"), width=4, height=2).place(x=606, y=110)
-            tk.Button(self.edit_profile_window, text="right",   command=lambda: self.button_edit_stuff("right",  "mouse"), width=6, height=6).place(x=650, y=40)
+            tk.Button(self.edit_profile_window, text="middle",  command=lambda: self.button_edit_stuff("middle", "mouse"), width=5, height=2).place(x=619, y=60)
+            tk.Button(self.edit_profile_window, text="G9",      command=lambda: self.button_edit_stuff("g9",     "mouse"), width=4, height=2).place(x=622, y=110)
+            
+            tk.Button(self.edit_profile_window, text="←",      command=lambda: self.button_edit_stuff("sl",     "mouse"), width=1, height=2).place(x=602, y=60)
+            tk.Button(self.edit_profile_window, text="→",      command=lambda: self.button_edit_stuff("sr",     "mouse"), width=1, height=2).place(x=662, y=60)
+            tk.Button(self.edit_profile_window, text="right",   command=lambda: self.button_edit_stuff("right",  "mouse"), width=6, height=6).place(x=678, y=40)
             
             tk.Button(self.edit_profile_window, text="↑",   command=lambda: self.button_edit_stuff("forward", "mouse"), width=3, height=2).place(x=560, y=145)
             tk.Button(self.edit_profile_window, text="↓",   command=lambda: self.button_edit_stuff("back",    "mouse"), width=3, height=2).place(x=560, y=185)
@@ -1139,7 +1146,7 @@ class ImageOverlayWindow:
             self.set_image_visibility(image_id, False)
 
 
-    def set_image_visibility(self, key, visibility:bool):
+    def set_image_visibility(self, key:str, visibility:bool):
         if type(key) != int:
             if key not in self.images.keys():
                 return
@@ -1151,7 +1158,7 @@ class ImageOverlayWindow:
             self.canvas.itemconfigure(key, state='hidden')
 
 
-    def move_image(self, key, x, y):
+    def move_image(self, key:str, x:int, y:int):
         if key not in self.images:
             return
         
@@ -1161,15 +1168,17 @@ class ImageOverlayWindow:
         if key == "mouse_thumbstick_cap":
             self.canvas.coords(self.images["mouse_button_22"][1], x, y)
 
-root = tk.Tk()
-icon_image = Image.open("assets\\icon\\icon.png")  # Ensure it's a .png file
-icon_photo = ImageTk.PhotoImage(icon_image)
 
-# Set the icon
-root.iconphoto(False, icon_photo)
-app = ImageOverlayWindow(root)
 
-scroll_wheel_listener.start()
-main_thread.start()
+if __name__ == "__main__":
+    root = tk.Tk()
+    icon_image = Image.open("assets\\icon\\icon.png")
+    icon_photo = ImageTk.PhotoImage(icon_image)
 
-root.mainloop()
+    root.iconphoto(False, icon_photo)
+    app = ImageOverlayWindow(root)
+
+    scroll_wheel_listener.start()
+    main_thread.start()
+
+    root.mainloop()
