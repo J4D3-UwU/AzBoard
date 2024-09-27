@@ -166,7 +166,7 @@ def load_profile(profile_json:str):
         for item in profile["stick"]:
             used_inputs_list.append(item)
     if type(profile["mouse_stick"]) != str:
-        movement_keys["mouse"]["forward"], movement_keys["mouse"]["left"], movement_keys["mouse"]["back"], movement_keys["mouse"]["right"] = [x for x in profile["stick"]]
+        movement_keys["mouse"]["forward"], movement_keys["mouse"]["left"], movement_keys["mouse"]["back"], movement_keys["mouse"]["right"] = [x for x in profile["mouse_stick"]]
         for item in profile["mouse_stick"]:
             used_inputs_list.append(item)
     used_inputs = tuple(used_inputs_list)
@@ -624,21 +624,21 @@ class ImageOverlayWindow:
                 label = tk.Label(self.edit_profile_window, text="Left:")
                 label.place(x=7, y=390)
                 self.thumbstick_wasd_buttons.append(label)
-                left_button = tk.Button(self.edit_profile_window, text="KB.a", command=lambda: threading.Thread(target=change_movement_buttons, args=(1, self.new_profile[self.thumbstick_key][1], up_button)).start())
+                left_button = tk.Button(self.edit_profile_window, text="KB.a", command=lambda: threading.Thread(target=change_movement_buttons, args=(1, self.new_profile[self.thumbstick_key][1], left_button)).start())
                 left_button.place(x=46, y=390)
                 self.thumbstick_wasd_buttons.append(left_button)
 
                 label = tk.Label(self.edit_profile_window, text="Down:")
                 label.place(x=7, y=420)
                 self.thumbstick_wasd_buttons.append(label)
-                down_button = tk.Button(self.edit_profile_window, text="KB.s", command=lambda: threading.Thread(target=change_movement_buttons, args=(2, self.new_profile[self.thumbstick_key][2], up_button)).start())
+                down_button = tk.Button(self.edit_profile_window, text="KB.s", command=lambda: threading.Thread(target=change_movement_buttons, args=(2, self.new_profile[self.thumbstick_key][2], down_button)).start())
                 down_button.place(x=46, y=420)
                 self.thumbstick_wasd_buttons.append(down_button)
 
                 label = tk.Label(self.edit_profile_window, text="Right:")
                 label.place(x=7, y=450)
                 self.thumbstick_wasd_buttons.append(label)
-                right_button = tk.Button(self.edit_profile_window, text="KB.d", command=lambda: threading.Thread(target=change_movement_buttons, args=(3, self.new_profile[self.thumbstick_key][3], up_button)).start())
+                right_button = tk.Button(self.edit_profile_window, text="KB.d", command=lambda: threading.Thread(target=change_movement_buttons, args=(3, self.new_profile[self.thumbstick_key][3], right_button)).start())
                 right_button.place(x=46, y=450)
                 self.thumbstick_wasd_buttons.append(right_button)
 
