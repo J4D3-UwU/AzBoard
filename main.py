@@ -1162,6 +1162,11 @@ class ImageOverlayWindow:
             self.canvas.coords(self.images["mouse_button_22"][1], x, y)
 
 root = tk.Tk()
+icon_image = Image.open("assets\\icon\\icon.png")  # Ensure it's a .png file
+icon_photo = ImageTk.PhotoImage(icon_image)
+
+# Set the icon
+root.iconphoto(False, icon_photo)
 app = ImageOverlayWindow(root)
 
 scroll_wheel_listener.start()
