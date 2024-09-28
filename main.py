@@ -1,23 +1,23 @@
-import ctypes
-from ctypes import wintypes
+from ctypes import wintypes as ctypes_wintypes, WinDLL as ctypes_WinDLL, Structure as ctypes_Structure, c_ubyte as ctypes_cubyte, c_long as ctypes_clong, c_short as ctypes_cshort, byref as ctypes_byref
 from pynput.mouse import Listener as MouseListener
-import threading
-import copy
-import time
+from threading import Thread
+from copy import deepcopy
+from time import sleep, time
 from math import radians as math_radians, cos as math_cos, sin as math_sin, atan2 as math_atan2, sqrt as math_sqrt, degrees as math_degrees
-import button_map
 import tkinter as tk
 from PIL import Image, ImageTk
-import json
-import os
+from json import dump as json_dump, load as json_load
+from os import rename as os_rename, path as os_path, remove as os_remove, listdir as os_listdir
+
+import button_map
 
 
-user32 = ctypes.WinDLL('user32')
-xinput1_4 = ctypes.WinDLL('XInput1_4.dll')
+user32 = ctypes_WinDLL('user32')
+xinput1_4 = ctypes_WinDLL('XInput1_4.dll')
 
 
-scroll_time = time.time()
-mouse_move_time = time.time()
+scroll_time = time()
+mouse_move_time = time()
 
 mouse_pos = (0, 0)
 left_stick_pos = (0, 0)
@@ -42,30 +42,30 @@ settings = {}
 empty_profile_template = {"azeron_keys": {"1": [], "2": [], "3": [], "4": [], "5": [], "6": [], "7": [], "8": [], "9": [], "10": [], "11": [], "12": [], "14": [], "15": [], "16": [], "17": [], "19": [], "20": [], "22": [], "23": [], "28": [], "29": [], "30": [], "31": [], "13": [], "18": [], "36": [], "37": [], "38": [], "41": []}, "stick": "xinput-l", "mouse_stick": "xinput-l", "mouse_keys": {"right": [2], "left": [1], "middle": [4], "forward": [6], "back": [5], "dpi": [], "1": [5], "2": [6], "3": [2], "4": [1], "5": [4], "6": [], "7": [], "8": [], "9": [], "10": [], "11": [], "12": [], "14": [], "15": [], "16": [], "17": [], "20": [], "22": [], "28": [], "29": [], "30": [], "31": [], "g7": [], "g8": [], "g9": [], "sl": [], "sr": []}}
 
 
-class XINPUT_GAMEPAD(ctypes.Structure):
+class XINPUT_GAMEPAD(ctypes_Structure):
     _fields_ = [
-        ("wButtons", wintypes.WORD),
-        ("bLeftTrigger", ctypes.c_ubyte),
-        ("bRightTrigger", ctypes.c_ubyte),
-        ("sThumbLX", ctypes.c_short),
-        ("sThumbLY", ctypes.c_short),
-        ("sThumbRX", ctypes.c_short),
-        ("sThumbRY", ctypes.c_short)
+        ("wButtons", ctypes_wintypes.WORD),
+        ("bLeftTrigger", ctypes_cubyte),
+        ("bRightTrigger", ctypes_cubyte),
+        ("sThumbLX", ctypes_cshort),
+        ("sThumbLY", ctypes_cshort),
+        ("sThumbRX", ctypes_cshort),
+        ("sThumbRY", ctypes_cshort)
     ]
 
-class XINPUT_STATE(ctypes.Structure):
+class XINPUT_STATE(ctypes_Structure):
     _fields_ = [
-        ("dwPacketNumber", wintypes.DWORD),
+        ("dwPacketNumber", ctypes_wintypes.DWORD),
         ("Gamepad", XINPUT_GAMEPAD)
     ]
     
-class POINT(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_long), 
-                ("y", ctypes.c_long)]
+class POINT(ctypes_Structure):
+    _fields_ = [("x", ctypes_clong), 
+                ("y", ctypes_clong)]
 
 def get_xinput_state(controller_index:int=0):
     state = XINPUT_STATE()
-    if xinput1_4.XInputGetState(controller_index, ctypes.byref(state)) != 0:
+    if xinput1_4.XInputGetState(controller_index, ctypes_byref(state)) != 0:
         return None
     return state
 
@@ -106,7 +106,7 @@ def get_pressed_xinputs(all=False):
 
 def get_mouse_pos():
     pt = POINT()
-    if user32.GetCursorPos(ctypes.byref(pt)):
+    if user32.GetCursorPos(ctypes_byref(pt)):
         return (pt.x, pt.y)
     return (0, 0)
 
@@ -123,15 +123,15 @@ def get_thumbstick_pos(right=False):
 
 def load_profile(profile_json:str):
     global profile, used_inputs, used_xinputs, movement_keys
-    if not os.path.exists(profile_json):
-        profiles = [f for f in os.listdir("profiles") if f.endswith('.json')]
+    if not os_path.exists(profile_json):
+        profiles = [f for f in os_listdir("profiles") if f.endswith('.json')]
         if profiles == []:
             create_new_profile()
             return
         edit_settings("loaded_profile", f"profiles\\{profiles[0]}")
         return
     with open(profile_json, "r") as f:
-        profile = json.load(f)
+        profile = json_load(f)
     
         
     used_inputs_list = []
@@ -190,12 +190,12 @@ def set_used_thumbsticks():
 def create_new_profile():
     file_path = f"profiles\\new-profile.json"
     i = 1
-    while os.path.exists(file_path):
+    while os_path.exists(file_path):
         file_path = f"profiles\\new-profile{i}.json"
         i += 1
 
     with open(file_path, "w") as f:
-        json.dump(empty_profile_template, f)
+        json_dump(empty_profile_template, f)
     edit_settings("loaded_profile", file_path)
 
 
@@ -203,7 +203,7 @@ def edit_settings(key:str, value:str):
     global settings
     settings[key] = value
     with open("settings.json", "w") as f:
-        json.dump(settings, f)
+        json_dump(settings, f)
     if key == "loaded_profile":
         load_profile(value)
     if key == "mouse":
@@ -212,13 +212,13 @@ def edit_settings(key:str, value:str):
 
 def save_profile(profile:dict):
     with open(f"{settings["loaded_profile"]}", "w") as f:
-        json.dump(profile, f)
+        json_dump(profile, f)
     load_profile(settings["loaded_profile"])
 
 
 def on_scroll(x:int, y:int, dx:int, dy:int):
     global scroll_time
-    scroll_time = time.time()
+    scroll_time = time()
 
     if dy == 0:
         pass
@@ -309,9 +309,9 @@ def main_input_loop():
     global i, mouse_speed_indicator, xinput_presses, key_presses, mouse_pos, left_stick_pos, right_stick_pos, mouse_move_time
     while True:
         i += 1
-        time.sleep(0.01)
+        sleep(0.01)
 
-        current_time = time.time()
+        current_time = time()
 
         new_xinput_presses = get_pressed_xinputs()
         for button in tuple(set(new_xinput_presses)-set(xinput_presses)): #on xinput press
@@ -402,12 +402,12 @@ def main_input_loop():
 
 
 scroll_wheel_listener = MouseListener(on_scroll=on_scroll)
-main_thread = threading.Thread(target=main_input_loop, daemon=True)
+main_thread = Thread(target=main_input_loop, daemon=True)
 
 
 
 with open("settings.json", "r") as f:
-    settings = json.load(f)
+    settings = json_load(f)
 
 load_profile(settings["loaded_profile"])
 
@@ -472,14 +472,14 @@ class ImageOverlayWindow:
         
         def delete_window():
             global settings
-            new_settings = copy.deepcopy(settings)
+            new_settings = deepcopy(settings)
             new_settings["model"] = model_var.get()
             new_settings["color"] = color_var.get()
             new_settings["mouse"] = mouse_var.get()
             if new_settings != settings:
-                settings = copy.deepcopy(new_settings)
+                settings = deepcopy(new_settings)
                 with open("settings.json", "w") as f:
-                    json.dump(new_settings, f)
+                    json_dump(new_settings, f)
 
                 self.clear_images()
                 self.create_azeron_overlay()
@@ -533,7 +533,7 @@ class ImageOverlayWindow:
             label.place(x=150, y=402)
             self.set_button_labels.append(label)
             while key == ():
-                time.sleep(0.001)
+                sleep(0.001)
                 key = get_key_presses(all=True)
                 if key == ():
                     key = get_pressed_xinputs(all=True)
@@ -575,7 +575,7 @@ class ImageOverlayWindow:
             key_type, key_name = listbox._name.split("|")
             #print(f"Type: {key_type} Key: {key_name} Selected: {selected_item}")
 
-            self.record_button = tk.Button(self.edit_profile_window, text="Set Key", width=10, height=5, command=lambda: threading.Thread(target=update_item_button, args=(key_type, key_name, get_key_from_value(button_map.keyboard, selected_item), index)).start())
+            self.record_button = tk.Button(self.edit_profile_window, text="Set Key", width=10, height=5, command=lambda: Thread(target=update_item_button, args=(key_type, key_name, get_key_from_value(button_map.keyboard, selected_item), index)).start())
             self.record_button.place(x=150, y=282)
             self.button_edit_items.append(self.record_button)
 
@@ -590,7 +590,7 @@ class ImageOverlayWindow:
             label.place(x=150, y=402)
             self.set_button_labels.append(label)
             while key == ():
-                time.sleep(0.001)
+                sleep(0.001)
                 key = get_key_presses(all=True)
             key = key[0]
             for item in self.set_button_labels:
@@ -623,28 +623,28 @@ class ImageOverlayWindow:
                 label = tk.Label(self.edit_profile_window, text="Up:")
                 label.place(x=7, y=360)
                 self.thumbstick_wasd_buttons.append(label)
-                up_button = tk.Button(self.edit_profile_window, text="KB.w", command=lambda: threading.Thread(target=change_movement_buttons, args=(0, self.new_profile[self.thumbstick_key][0], up_button)).start())
+                up_button = tk.Button(self.edit_profile_window, text="KB.w", command=lambda: Thread(target=change_movement_buttons, args=(0, self.new_profile[self.thumbstick_key][0], up_button)).start())
                 up_button.place(x=46, y=360)
                 self.thumbstick_wasd_buttons.append(up_button)
 
                 label = tk.Label(self.edit_profile_window, text="Left:")
                 label.place(x=7, y=390)
                 self.thumbstick_wasd_buttons.append(label)
-                left_button = tk.Button(self.edit_profile_window, text="KB.a", command=lambda: threading.Thread(target=change_movement_buttons, args=(1, self.new_profile[self.thumbstick_key][1], left_button)).start())
+                left_button = tk.Button(self.edit_profile_window, text="KB.a", command=lambda: Thread(target=change_movement_buttons, args=(1, self.new_profile[self.thumbstick_key][1], left_button)).start())
                 left_button.place(x=46, y=390)
                 self.thumbstick_wasd_buttons.append(left_button)
 
                 label = tk.Label(self.edit_profile_window, text="Down:")
                 label.place(x=7, y=420)
                 self.thumbstick_wasd_buttons.append(label)
-                down_button = tk.Button(self.edit_profile_window, text="KB.s", command=lambda: threading.Thread(target=change_movement_buttons, args=(2, self.new_profile[self.thumbstick_key][2], down_button)).start())
+                down_button = tk.Button(self.edit_profile_window, text="KB.s", command=lambda: Thread(target=change_movement_buttons, args=(2, self.new_profile[self.thumbstick_key][2], down_button)).start())
                 down_button.place(x=46, y=420)
                 self.thumbstick_wasd_buttons.append(down_button)
 
                 label = tk.Label(self.edit_profile_window, text="Right:")
                 label.place(x=7, y=450)
                 self.thumbstick_wasd_buttons.append(label)
-                right_button = tk.Button(self.edit_profile_window, text="KB.d", command=lambda: threading.Thread(target=change_movement_buttons, args=(3, self.new_profile[self.thumbstick_key][3], right_button)).start())
+                right_button = tk.Button(self.edit_profile_window, text="KB.d", command=lambda: Thread(target=change_movement_buttons, args=(3, self.new_profile[self.thumbstick_key][3], right_button)).start())
                 right_button.place(x=46, y=450)
                 self.thumbstick_wasd_buttons.append(right_button)
 
@@ -691,28 +691,28 @@ class ImageOverlayWindow:
                 label = tk.Label(self.edit_profile_window, text="Up:")
                 label.place(x=7, y=360)
                 self.thumbstick_wasd_buttons.append(label)
-                up_button = tk.Button(self.edit_profile_window, text=button_map.keyboard[self.new_profile[self.thumbstick_key][0]], command=lambda: threading.Thread(target=change_movement_buttons, args=(0, self.new_profile[self.thumbstick_key][0], up_button)).start())
+                up_button = tk.Button(self.edit_profile_window, text=button_map.keyboard[self.new_profile[self.thumbstick_key][0]], command=lambda: Thread(target=change_movement_buttons, args=(0, self.new_profile[self.thumbstick_key][0], up_button)).start())
                 up_button.place(x=46, y=360)
                 self.thumbstick_wasd_buttons.append(up_button)
 
                 label = tk.Label(self.edit_profile_window, text="Left:")
                 label.place(x=7, y=390)
                 self.thumbstick_wasd_buttons.append(label)
-                left_button = tk.Button(self.edit_profile_window, text=button_map.keyboard[self.new_profile[self.thumbstick_key][1]], command=lambda: threading.Thread(target=change_movement_buttons, args=(1, self.new_profile[self.thumbstick_key][1], left_button)).start())
+                left_button = tk.Button(self.edit_profile_window, text=button_map.keyboard[self.new_profile[self.thumbstick_key][1]], command=lambda: Thread(target=change_movement_buttons, args=(1, self.new_profile[self.thumbstick_key][1], left_button)).start())
                 left_button.place(x=46, y=390)
                 self.thumbstick_wasd_buttons.append(left_button)
 
                 label = tk.Label(self.edit_profile_window, text="Down:")
                 label.place(x=7, y=420)
                 self.thumbstick_wasd_buttons.append(label)
-                down_button = tk.Button(self.edit_profile_window, text=button_map.keyboard[self.new_profile[self.thumbstick_key][2]], command=lambda: threading.Thread(target=change_movement_buttons, args=(2, self.new_profile[self.thumbstick_key][2], down_button)).start())
+                down_button = tk.Button(self.edit_profile_window, text=button_map.keyboard[self.new_profile[self.thumbstick_key][2]], command=lambda: Thread(target=change_movement_buttons, args=(2, self.new_profile[self.thumbstick_key][2], down_button)).start())
                 down_button.place(x=46, y=420)
                 self.thumbstick_wasd_buttons.append(down_button)
 
                 label = tk.Label(self.edit_profile_window, text="Right:")
                 label.place(x=7, y=450)
                 self.thumbstick_wasd_buttons.append(label)
-                right_button = tk.Button(self.edit_profile_window, text=button_map.keyboard[self.new_profile[self.thumbstick_key][3]], command=lambda: threading.Thread(target=change_movement_buttons, args=(3, self.new_profile[self.thumbstick_key][3], right_button)).start())
+                right_button = tk.Button(self.edit_profile_window, text=button_map.keyboard[self.new_profile[self.thumbstick_key][3]], command=lambda: Thread(target=change_movement_buttons, args=(3, self.new_profile[self.thumbstick_key][3], right_button)).start())
                 right_button.place(x=46, y=450)
                 self.thumbstick_wasd_buttons.append(right_button)
 
@@ -754,7 +754,7 @@ class ImageOverlayWindow:
         self.edit_profile_canvas = tk.Canvas(self.edit_profile_window, width=750, height=500)
         self.edit_profile_canvas.pack(fill=tk.BOTH, expand=True)
         if self.new_profile == {}:
-            self.new_profile = copy.deepcopy(profile)
+            self.new_profile = deepcopy(profile)
 
         
         menu_bar = tk.Menu(self.edit_profile_window)
@@ -762,7 +762,7 @@ class ImageOverlayWindow:
 
         
         def clear_profile():
-            self.new_profile = copy.deepcopy(empty_profile_template)
+            self.new_profile = deepcopy(empty_profile_template)
             for item in self.button_edit_items:
                 try:
                     item.destroy()
@@ -792,7 +792,7 @@ class ImageOverlayWindow:
             if entered_text == settings["loaded_profile"].replace("profiles\\", "").replace(".json", ""):
                 return
             
-            os.rename(settings["loaded_profile"], f"profiles\\{entered_text}.json")
+            os_rename(settings["loaded_profile"], f"profiles\\{entered_text}.json")
             edit_settings("loaded_profile", f"profiles\\{entered_text}.json")
             self.update_profiles_menu()
 
@@ -822,24 +822,6 @@ class ImageOverlayWindow:
             self.edit_profile_window.destroy()
         self.edit_profile_window.protocol("WM_DELETE_WINDOW", delete_window)
 
-        '''
-        x:
-         1: 550
-         2: 600
-         3: 110
-         4: 160
-         5: 210
-         6: 260
-
-        y:
-         1: 10
-         2: 55:
-         3: 100
-         4: 145
-         5: 190
-         6: 235
-
-        '''
         #mouse
         tk.Label(self.edit_profile_window, text="Mouse").place(x=605, y=10)
         if settings["mouse"] == "g403":
@@ -979,7 +961,7 @@ class ImageOverlayWindow:
         profiles_submenu = tk.Menu(self.profiles_menu, tearoff=0)
 
         profiles_submenu.add_command(label="new...", command=lambda: (create_new_profile(), self.update_profiles_menu())) #make new empty profile
-        for profile_name in [f[:-5] for f in os.listdir("profiles") if f.endswith('.json')]:
+        for profile_name in [f[:-5] for f in os_listdir("profiles") if f.endswith('.json')]:
             if profile_name == settings["loaded_profile"].replace("profiles\\", "").replace(".json", ""):
                 continue
             profiles_submenu.add_command(label=profile_name, command=lambda p=profile_name: (edit_settings("loaded_profile", f"profiles\\{p}.json"), self.update_profiles_menu()))
@@ -992,13 +974,13 @@ class ImageOverlayWindow:
         
 
         def delete_profile(profile_name):
-            if not os.path.exists(profile_name):
+            if not os_path.exists(profile_name):
                 return
-            os.remove(profile_name)
-            edit_settings("loaded_profile", f"profiles\\{[f for f in os.listdir("profiles") if f.endswith('.json')][0]}")
+            os_remove(profile_name)
+            edit_settings("loaded_profile", f"profiles\\{[f for f in os_listdir("profiles") if f.endswith('.json')][0]}")
             self.update_profiles_menu()
             
-        if len([f for f in os.listdir("profiles") if f.endswith('.json')]) >= 2:
+        if len([f for f in os_listdir("profiles") if f.endswith('.json')]) >= 2:
             delete_menu_1 = tk.Menu(self.profiles_menu, tearoff=0)
             self.profiles_menu.add_cascade(label="Delete", menu=delete_menu_1)
             delete_menu_2 = tk.Menu(self.profiles_menu, tearoff=0)
