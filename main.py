@@ -1,5 +1,5 @@
-from ctypes import wintypes as ctypes_wintypes, WinDLL as ctypes_WinDLL, Structure as ctypes_Structure, c_ubyte as ctypes_cubyte, c_long as ctypes_clong, c_short as ctypes_cshort, byref as ctypes_byref
-from pynput.mouse import Listener as MouseListener
+import ctypes
+from ctypes import wintypes
 from threading import Thread
 from copy import deepcopy
 from time import sleep, time
@@ -12,11 +12,10 @@ from os import rename as os_rename, path as os_path, remove as os_remove, listdi
 import button_map
 
 
-user32 = ctypes_WinDLL('user32')
-xinput1_4 = ctypes_WinDLL('XInput1_4.dll')
+user32 = ctypes.WinDLL('user32')
+xinput1_4 = ctypes.WinDLL('XInput1_4.dll')
 
 
-scroll_time = time()
 mouse_move_time = time()
 
 mouse_pos = (0, 0)
@@ -31,6 +30,7 @@ mouse_speed_indicator = None
 pressed_movement_keys = {"azeron":(),"mouse":()}
 movement_keys = {"azeron":{},"mouse":{}}
 
+
 used_inputs = ()
 used_xinputs = ()
 used_sticks = {"left":False,"right":False}
@@ -42,30 +42,37 @@ settings = {}
 empty_profile_template = {"azeron_keys": {"1": [], "2": [], "3": [], "4": [], "5": [], "6": [], "7": [], "8": [], "9": [], "10": [], "11": [], "12": [], "14": [], "15": [], "16": [], "17": [], "19": [], "20": [], "22": [], "23": [], "28": [], "29": [], "30": [], "31": [], "13": [], "18": [], "36": [], "37": [], "38": [], "41": []}, "stick": "xinput-l", "mouse_stick": "xinput-l", "mouse_keys": {"right": [2], "left": [1], "middle": [4], "forward": [6], "back": [5], "dpi": [], "1": [5], "2": [6], "3": [2], "4": [1], "5": [4], "6": [], "7": [], "8": [], "9": [], "10": [], "11": [], "12": [], "14": [], "15": [], "16": [], "17": [], "20": [], "22": [], "28": [], "29": [], "30": [], "31": [], "g7": [], "g8": [], "g9": [], "sl": [], "sr": []}}
 
 
-class XINPUT_GAMEPAD(ctypes_Structure):
+class XINPUT_GAMEPAD(ctypes.Structure):
     _fields_ = [
-        ("wButtons", ctypes_wintypes.WORD),
-        ("bLeftTrigger", ctypes_cubyte),
-        ("bRightTrigger", ctypes_cubyte),
-        ("sThumbLX", ctypes_cshort),
-        ("sThumbLY", ctypes_cshort),
-        ("sThumbRX", ctypes_cshort),
-        ("sThumbRY", ctypes_cshort)
+        ("wButtons", wintypes.WORD),
+        ("bLeftTrigger", ctypes.c_ubyte),
+        ("bRightTrigger", ctypes.c_ubyte),
+        ("sThumbLX", ctypes.c_short),
+        ("sThumbLY", ctypes.c_short),
+        ("sThumbRX", ctypes.c_short),
+        ("sThumbRY", ctypes.c_short)
     ]
 
-class XINPUT_STATE(ctypes_Structure):
+class XINPUT_STATE(ctypes.Structure):
     _fields_ = [
-        ("dwPacketNumber", ctypes_wintypes.DWORD),
+        ("dwPacketNumber", wintypes.DWORD),
         ("Gamepad", XINPUT_GAMEPAD)
     ]
     
-class POINT(ctypes_Structure):
-    _fields_ = [("x", ctypes_clong), 
-                ("y", ctypes_clong)]
+class POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), 
+                ("y", ctypes.c_long)]
+
+class MSLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [("pt", wintypes.POINT),
+                ("mouseData", wintypes.DWORD),
+                ("flags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
 
 def get_xinput_state(controller_index:int=0):
     state = XINPUT_STATE()
-    if xinput1_4.XInputGetState(controller_index, ctypes_byref(state)) != 0:
+    if xinput1_4.XInputGetState(controller_index, ctypes.byref(state)) != 0:
         return None
     return state
 
@@ -75,38 +82,53 @@ def get_key_from_value(dictionary:dict, value:str):
             return key
     return value
 
+def low_level_mouse_proc(nCode, wParam, lParam):
+    if wParam == 0x020A:
+        scroll_amount = ctypes.c_short(ctypes.cast(lParam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents.mouseData >> 16).value
+        if scroll_amount > 0:
+            app.set_image_visibility(f"mouse_scroll_down", False)
+            app.set_image_visibility(f"mouse_scroll_up", True)
+        else:
+            app.set_image_visibility(f"mouse_scroll_up", False)
+            app.set_image_visibility(f"mouse_scroll_down", True)
+    elif wParam == 0x020E and settings["mouse"] == "g502":
+        scroll_amount = ctypes.c_short(ctypes.cast(lParam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents.mouseData >> 16).value
+        if scroll_amount > 0:
+            app.set_image_visibility(f"mouse_scroll_down", False)
+            app.set_image_visibility(f"mouse_scroll_up", True)
+        else:
+            app.set_image_visibility(f"mouse_scroll_up", False)
+            app.set_image_visibility(f"mouse_scroll_down", True)
+    return user32.CallNextHookEx(None, nCode, wParam, ctypes.c_void_p(lParam))
 
-def get_key_presses(all=False):
-    if all:
-        return tuple(keycode for keycode in button_map.keyboard.keys() if user32.GetAsyncKeyState(keycode) & 0x8000)
-    return tuple(keycode for keycode in used_inputs if user32.GetAsyncKeyState(keycode) & 0x8000)
+def scroll_wheel_listener():
+    mouse_hook_proc = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)(low_level_mouse_proc)
+    user32.SetWindowsHookExA(14, mouse_hook_proc, None, 0)
+    msg = ctypes.wintypes.MSG()
+    while user32.GetMessageA(ctypes.byref(msg), None, 0, 0) != 0:
+        user32.TranslateMessage(msg)
+        user32.DispatchMessageA(msg)
 
 
-def get_pressed_xinputs(all=False):
-    gamepad = get_xinput_state()
-    if gamepad == None:
-        return ()
-    gamepad = gamepad.Gamepad
-
-    pressed_buttons = []
-    for key, value in button_map.controller.items():
-        if value not in used_xinputs and not all:
-            continue
-        if value == "XI.lt":
-            if gamepad.bLeftTrigger > 0:
-                pressed_buttons.append(value)
-        elif value == "XI.rt":
-            if gamepad.bRightTrigger > 0:
-                pressed_buttons.append(value)
-        elif gamepad.wButtons & key:
-            pressed_buttons.append(value)
-
-    return tuple(pressed_buttons)
+def get_pressed_inputs(all_items=False, include_xinputs=True):
+    inputs = tuple(keycode for keycode in (button_map.keyboard.keys() if all_items else used_inputs) if user32.GetAsyncKeyState(keycode) & 0x8000)
+    if include_xinputs:
+        gamepad = get_xinput_state()
+        if gamepad != None:
+            inputs += tuple(
+                value for key, value in button_map.controller.items() 
+                if ((value in used_xinputs) or all_items) and (
+                    (isinstance(key, int) and (gamepad.Gamepad.wButtons&key)) or 
+                    (value == "XI.lt" and gamepad.Gamepad.bLeftTrigger > 0) or 
+                    (value == "XI.rt" and gamepad.Gamepad.bRightTrigger > 0)
+                )
+            )
+    return inputs
 
 
 def get_mouse_pos():
     pt = POINT()
-    if user32.GetCursorPos(ctypes_byref(pt)):
+    if user32.GetCursorPos(ctypes.byref(pt)):
         return (pt.x, pt.y)
     return (0, 0)
 
@@ -148,6 +170,7 @@ def load_profile(profile_json:str):
                 used_xinputs_list.append(item)
             else:
                 used_inputs_list.append(item)
+
     for key, values in profile["mouse_keys"].items():
         if settings["mouse"] != "cyro" and key in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "15", "16", "17", "20", "22", "28", "29", "30", "31"]:
             continue
@@ -161,6 +184,8 @@ def load_profile(profile_json:str):
                 used_xinputs_list.append(item)
             else:
                 used_inputs_list.append(item)
+
+
     if type(profile["stick"]) != str:
         movement_keys["azeron"]["forward"], movement_keys["azeron"]["left"], movement_keys["azeron"]["back"], movement_keys["azeron"]["right"] = [x for x in profile["stick"]]
         for item in profile["stick"]:
@@ -176,15 +201,8 @@ def load_profile(profile_json:str):
 
 def set_used_thumbsticks():
     global used_sticks
-    if profile["stick"] == "xinput-l" or (settings["mouse"] == "cyro" and profile["mouse_stick"] == "xinput-l"):
-        used_sticks["left"]=True
-    else:
-        used_sticks["left"]=False
-
-    if profile["stick"] == "xinput-r" or (settings["mouse"] == "cyro" and profile["mouse_stick"] == "xinput-r"):
-        used_sticks["right"]=True
-    else:
-        used_sticks["right"]=False
+    used_sticks["left"] = profile["stick"] == "xinput-l" or (settings["mouse"] == "cyro" and profile["mouse_stick"] == "xinput-l")
+    used_sticks["right"] = profile["stick"] == "xinput-r" or (settings["mouse"] == "cyro" and profile["mouse_stick"] == "xinput-r")
 
 
 def create_new_profile():
@@ -216,20 +234,6 @@ def save_profile(profile:dict):
     load_profile(settings["loaded_profile"])
 
 
-def on_scroll(x:int, y:int, dx:int, dy:int):
-    global scroll_time
-    scroll_time = time()
-
-    if dy == 0:
-        pass
-    elif dy>0: #On Scroll Up
-        app.set_image_visibility(f"mouse_scroll_down", False)
-        app.set_image_visibility(f"mouse_scroll_up", True)
-    else:    #On Scroll Down
-        app.set_image_visibility(f"mouse_scroll_up", False)
-        app.set_image_visibility(f"mouse_scroll_down", True)
-
-
 def input_handler(input:int|str, on:bool):
     for key, values in profile["azeron_keys"].items():
         if input in values:
@@ -242,65 +246,63 @@ def input_handler(input:int|str, on:bool):
 
 def wasd_handler(new_pressed_movement_keys:tuple, thumbstick_type="azeron"):
     global pressed_movement_keys
-    if movement_keys[thumbstick_type]["forward"] in new_pressed_movement_keys and movement_keys[thumbstick_type]["back"] in new_pressed_movement_keys:
-        y = 0
-    elif movement_keys[thumbstick_type]["forward"] in new_pressed_movement_keys:
-        y = 1
-    elif movement_keys[thumbstick_type]["back"] in new_pressed_movement_keys:
-        y = -1
-    else:
-        y = 0
+
+    x, y = 0, 0
+
+    if movement_keys[thumbstick_type]["forward"] in new_pressed_movement_keys:
+        y += 1
+    if movement_keys[thumbstick_type]["back"] in new_pressed_movement_keys:
+        y -= 1
     
-    if movement_keys[thumbstick_type]["right"] in new_pressed_movement_keys and movement_keys[thumbstick_type]["left"] in new_pressed_movement_keys:
-        x = 0
-    elif movement_keys[thumbstick_type]["right"] in new_pressed_movement_keys:
-        x = 1
-    elif movement_keys[thumbstick_type]["left"] in new_pressed_movement_keys:
-        x = -1
-    else:
-        x = 0
+    if movement_keys[thumbstick_type]["right"] in new_pressed_movement_keys:
+        x += 1
+    if movement_keys[thumbstick_type]["left"] in new_pressed_movement_keys:
+        x -= 1
     
     #wasq [87, 65, 83, 81]
     if thumbstick_type == "azeron":
+        thumbstick_image_id = "thumbstick_cap"
         #(394, 323)
         if (x, y) == (0, 0): # not moving
-            app.move_image("thumbstick_cap", 394, 323) #0, 0
-        if (x, y) == (0, 1): # forward
-            app.move_image("thumbstick_cap", 394, 300) #0, -23
-        if (x, y) == (1, 1): # forward right 
-            app.move_image("thumbstick_cap", 410, 307) #+16, -16
-        if (x, y) == (-1, 1): # forward left 
-            app.move_image("thumbstick_cap", 378, 307) #-16, -16
-        if (x, y) == (1, 0): # right
-            app.move_image("thumbstick_cap", 417, 323) #23, 0
-        if (x, y) == (-1, 0): # left
-            app.move_image("thumbstick_cap", 371, 323) #-23, 0
-        if (x, y) == (1, -1): # back right 
-            app.move_image("thumbstick_cap", 410, 339) #+16, +16
-        if (x, y) == (-1, -1): # back left 
-            app.move_image("thumbstick_cap", 378, 339) #-16, +16
-        if (x, y) == (0, -1): # back
-            app.move_image("thumbstick_cap", 394, 346) #0, +23
+            x, y = 394, 323 #0, 0
+        elif (x, y) == (0, 1): # forward
+            x, y = 394, 300 #0, -23
+        elif (x, y) == (1, 1): # forward right 
+            x, y = 410, 307 #+16, -16
+        elif (x, y) == (-1, 1): # forward left 
+            x, y = 378, 307 #-16, -16
+        elif (x, y) == (1, 0): # right
+            x, y = 417, 323 #23, 0
+        elif (x, y) == (-1, 0): # left
+            x, y = 371, 323 #-23, 0
+        elif (x, y) == (1, -1): # back right 
+            x, y = 410, 339 #+16, +16
+        elif (x, y) == (-1, -1): # back left 
+            x, y = 378, 339 #-16, +16
+        elif (x, y) == (0, -1): # back
+            x, y = 394, 346 #0, +23
     else:
+        thumbstick_image_id = "mouse_thumbstick_cap"
         #(533, 270)
         if (x, y) == (0, 0): # not moving
-            app.move_image("mouse_thumbstick_cap", 533, 270) #0, 0
-        if (x, y) == (0, 1): # forward
-            app.move_image("mouse_thumbstick_cap", 533, 254) #0, -16
-        if (x, y) == (1, 1): # forward right 
-            app.move_image("mouse_thumbstick_cap", 544.5, 258.5) #+11.5, -11.5
-        if (x, y) == (-1, 1): # forward left 
-            app.move_image("mouse_thumbstick_cap", 521.5, 258.5) #-11.5, -11.5
-        if (x, y) == (1, 0): # right
-            app.move_image("mouse_thumbstick_cap", 549, 270) #+16, 0
-        if (x, y) == (-1, 0): # left
-            app.move_image("mouse_thumbstick_cap", 517, 270) #-16, 0
-        if (x, y) == (1, -1): # back right 
-            app.move_image("mouse_thumbstick_cap", 544.5, 281.5) #+11.5, +11.5
-        if (x, y) == (-1, -1): # back left 
-            app.move_image("mouse_thumbstick_cap", 521.5, 281.5) #-11.5, +11.5
-        if (x, y) == (0, -1): # back
-            app.move_image("mouse_thumbstick_cap", 533, 286) #0, +16
+            x, y = 533, 270 #0, 0
+        elif (x, y) == (0, 1): # forward
+            x, y = 533, 254 #0, -16
+        elif (x, y) == (1, 1): # forward right 
+            x, y = 544.5, 258.5 #+11.5, -11.5
+        elif (x, y) == (-1, 1): # forward left 
+            x, y = 521.5, 258.5 #-11.5, -11.5
+        elif (x, y) == (1, 0): # right
+            x, y = 549, 270 #+16, 0
+        elif (x, y) == (-1, 0): # left
+            x, y = 517, 270 #-16, 0
+        elif (x, y) == (1, -1): # back right 
+            x, y = 544.5, 281.5 #+11.5, +11.5
+        elif (x, y) == (-1, -1): # back left 
+            x, y = 521.5, 281.5 #-11.5, +11.5
+        elif (x, y) == (0, -1): # back
+            x, y = 533, 286 #0, +16
+    app.move_image(thumbstick_image_id, x, y) #0, +16
     pressed_movement_keys[thumbstick_type] = new_pressed_movement_keys
 
 
@@ -313,19 +315,11 @@ def main_input_loop():
 
         current_time = time()
 
-        new_xinput_presses = get_pressed_xinputs()
-        for button in tuple(set(new_xinput_presses)-set(xinput_presses)): #on xinput press
-            input_handler(button, True)
-        for button in tuple(set(xinput_presses)-set(new_xinput_presses)): #on xinput release
-            input_handler(button, False)
 
-        xinput_presses = tuple(new_xinput_presses)
-
-        
-        new_key_presses = get_key_presses()
-        for key in tuple(set(new_key_presses)-set(key_presses)): #on keyboard press
+        new_key_presses = get_pressed_inputs()
+        for key in tuple(set(new_key_presses)-set(key_presses)): #on press
             input_handler(key, True)
-        for key in tuple(set(key_presses)-set(new_key_presses)): #on keyboard release
+        for key in tuple(set(key_presses)-set(new_key_presses)): #on release
             input_handler(key, False)
             
         key_presses = tuple(new_key_presses)
@@ -395,14 +389,12 @@ def main_input_loop():
                     app.canvas.delete(mouse_speed_indicator)
                     mouse_speed_indicator = None
             
-            if (current_time - scroll_time) > 0.05:
-                app.set_image_visibility(f"mouse_scroll_up", False)
-                app.set_image_visibility(f"mouse_scroll_down", False)
+            app.set_image_visibility(f"mouse_scroll_up", False)
+            app.set_image_visibility(f"mouse_scroll_down", False)
 
 
-
-scroll_wheel_listener = MouseListener(on_scroll=on_scroll)
 main_thread = Thread(target=main_input_loop, daemon=True)
+scroll_wheel_thread = Thread(target=scroll_wheel_listener, daemon=True)
 
 
 
@@ -415,7 +407,7 @@ mouse_pos = get_mouse_pos()
 
 
 
-class ImageOverlayWindow:
+class AzeronOverlayMainWindow:
     def __init__(self, root):
         self.button_edit_items = []
         self.set_button_labels = []
@@ -484,7 +476,6 @@ class ImageOverlayWindow:
                 self.clear_images()
                 self.create_azeron_overlay()
                 self.create_mouse_overlay()
-                set_used_thumbsticks()
                 load_profile(settings["loaded_profile"])
 
             settings_window.destroy()
@@ -534,9 +525,7 @@ class ImageOverlayWindow:
             self.set_button_labels.append(label)
             while key == ():
                 sleep(0.001)
-                key = get_key_presses(all=True)
-                if key == ():
-                    key = get_pressed_xinputs(all=True)
+                key = get_pressed_inputs(all_items=True)
             key = key[0]
             for item in self.set_button_labels:
                 item.destroy()
@@ -591,7 +580,7 @@ class ImageOverlayWindow:
             self.set_button_labels.append(label)
             while key == ():
                 sleep(0.001)
-                key = get_key_presses(all=True)
+                key = get_pressed_inputs(all_items=True, include_xinputs=False)
             key = key[0]
             for item in self.set_button_labels:
                 item.destroy()
@@ -1158,9 +1147,9 @@ if __name__ == "__main__":
     icon_photo = ImageTk.PhotoImage(icon_image)
 
     root.iconphoto(False, icon_photo)
-    app = ImageOverlayWindow(root)
+    app = AzeronOverlayMainWindow(root)
 
-    scroll_wheel_listener.start()
+    scroll_wheel_thread.start()
     main_thread.start()
 
     root.mainloop()
