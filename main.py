@@ -22,18 +22,25 @@ mouse_pos = (0, 0)
 left_stick_pos = (0, 0)
 right_stick_pos = (0, 0)
 
-xinput_presses = ()
-key_presses = ()
+pressed_keys = ()
 
 mouse_speed_indicator = None
 
 pressed_movement_keys = {"azeron":(),"mouse":()}
-movement_keys = {"azeron":{},"mouse":{}}
 
+used_inputs = {
+    "movement_keys":{
+        "azeron":{},
+        "mouse":{}
+    },
+    "sticks":{
+        "left":False,
+        "right":False
+    },
+    "inputs":{},
+    "xinputs":{},
+}
 
-used_inputs = ()
-used_xinputs = ()
-used_sticks = {"left":False,"right":False}
 
 profile = {}
 settings = {}
@@ -70,6 +77,7 @@ class MSLLHOOKSTRUCT(ctypes.Structure):
                 ("time", wintypes.DWORD),
                 ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
 
+
 def get_xinput_state(controller_index:int=0):
     state = XINPUT_STATE()
     if xinput1_4.XInputGetState(controller_index, ctypes.byref(state)) != 0:
@@ -91,14 +99,7 @@ def low_level_mouse_proc(nCode, wParam, lParam):
         else:
             app.set_image_visibility(f"mouse_scroll_up", False)
             app.set_image_visibility(f"mouse_scroll_down", True)
-    elif wParam == 0x020E and settings["mouse"] == "g502":
-        scroll_amount = ctypes.c_short(ctypes.cast(lParam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents.mouseData >> 16).value
-        if scroll_amount > 0:
-            app.set_image_visibility(f"mouse_scroll_down", False)
-            app.set_image_visibility(f"mouse_scroll_up", True)
-        else:
-            app.set_image_visibility(f"mouse_scroll_up", False)
-            app.set_image_visibility(f"mouse_scroll_down", True)
+    #horizontal scroll: 0x020E
     return user32.CallNextHookEx(None, nCode, wParam, ctypes.c_void_p(lParam))
 
 def scroll_wheel_listener():
@@ -110,14 +111,14 @@ def scroll_wheel_listener():
         user32.DispatchMessageA(msg)
 
 
-def get_pressed_inputs(all_items=False, include_xinputs=True):
-    inputs = tuple(keycode for keycode in (button_map.keyboard.keys() if all_items else used_inputs) if user32.GetAsyncKeyState(keycode) & 0x8000)
+def get_pressed_inputs(all_items:bool=False, include_xinputs:bool=True):
+    inputs = tuple(keycode for keycode in (button_map.keyboard.keys() if all_items else new_used_inputs["inputs"].keys()) if user32.GetAsyncKeyState(keycode) & 0x8000)
     if include_xinputs:
         gamepad = get_xinput_state()
         if gamepad != None:
             inputs += tuple(
                 value for key, value in button_map.controller.items() 
-                if ((value in used_xinputs) or all_items) and (
+                if ((value in new_used_inputs["xinputs"].keys()) or all_items) and (
                     (isinstance(key, int) and (gamepad.Gamepad.wButtons&key)) or 
                     (value == "XI.lt" and gamepad.Gamepad.bLeftTrigger > 0) or 
                     (value == "XI.rt" and gamepad.Gamepad.bRightTrigger > 0)
@@ -133,7 +134,7 @@ def get_mouse_pos():
     return (0, 0)
 
 
-def get_thumbstick_pos(right=False):
+def get_thumbstick_pos(right:bool=False):
     state = get_xinput_state()
     if state == None:  
         return (0, 0)
@@ -144,7 +145,7 @@ def get_thumbstick_pos(right=False):
         
 
 def load_profile(profile_json:str):
-    global profile, used_inputs, used_xinputs, movement_keys
+    global profile, used_inputs
     if not os_path.exists(profile_json):
         profiles = [f for f in os_listdir("profiles") if f.endswith('.json')]
         if profiles == []:
@@ -156,53 +157,69 @@ def load_profile(profile_json:str):
         profile = json_load(f)
     
         
-    used_inputs_list = []
-    used_xinputs_list = []
+    new_used_inputs = {}
+    new_used_xinputs = {}
     for key, values in profile["azeron_keys"].items():
-        if settings["model"] not in ["cyborg2"] and key in ["41"]:
+        if settings["model"] not in ["cyborg2"] and key in {"41"}:
             continue
-        if settings["model"] not in ["cyborg", "cyborg2"] and key in ["36", "37", "38"]:
+        if settings["model"] not in ["cyborg", "cyborg2"] and key in {"36", "37", "38"}:
             continue
-        if settings["model"] not in ["cyborg", "cyborg2", "classic"] and key in ["13", "18"]:
+        if settings["model"] not in ["cyborg", "cyborg2", "classic"] and key in {"13", "18"}:
             continue
         for item in values:
-            if type(item) == str:
-                used_xinputs_list.append(item)
+            if isinstance(item, str):
+                if item in new_used_xinputs.keys():
+                    new_used_xinputs[item].append(f"azeron_button_{key}")
+                else:
+                    new_used_xinputs[item] = [f"azeron_button_{key}"]
             else:
-                used_inputs_list.append(item)
+                if item in new_used_inputs.keys():
+                    new_used_inputs[item].append(f"azeron_button_{key}")
+                else:
+                    new_used_inputs[item] = [f"azeron_button_{key}"]
 
     for key, values in profile["mouse_keys"].items():
-        if settings["mouse"] != "cyro" and key in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "15", "16", "17", "20", "22", "28", "29", "30", "31"]:
+        if settings["mouse"] != "cyro" and key in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "15", "16", "17", "20", "22", "28", "29", "30", "31"}:
             continue
-        if settings["mouse"] not in ["g403", "g502"] and key in ["right", "left", "middle", "forward", "back", "dpi"]:
+        if settings["mouse"] not in {"g403", "g502"} and key in {"right", "left", "middle", "forward", "back", "dpi"}:
             continue
-        if settings["mouse"] != "g502" and key in ["g7", "g8", "g9", "sl", "sr"]:
+        if settings["mouse"] != "g502" and key in {"g7", "g8", "g9", "sl", "sr"}:
             continue
 
         for item in values:
-            if type(item) == str:
-                used_xinputs_list.append(item)
+            if isinstance(item, str):
+                if item in new_used_xinputs.keys():
+                    new_used_xinputs[item].append(f"mouse_button_{key}")
+                else:
+                    new_used_xinputs[item] = [f"mouse_button_{key}"]
             else:
-                used_inputs_list.append(item)
+                if item in new_used_inputs.keys():
+                    new_used_inputs[item].append(f"mouse_button_{key}")
+                else:
+                    new_used_inputs[item] = [f"mouse_button_{key}"]
 
 
-    if type(profile["stick"]) != str:
-        movement_keys["azeron"]["forward"], movement_keys["azeron"]["left"], movement_keys["azeron"]["back"], movement_keys["azeron"]["right"] = [x for x in profile["stick"]]
+    if not isinstance(profile["stick"], str):
+        new_used_inputs["movement_keys"]["azeron"]["forward"], new_used_inputs["movement_keys"]["azeron"]["left"], new_used_inputs["movement_keys"]["azeron"]["back"], new_used_inputs["movement_keys"]["azeron"]["right"] = [x for x in profile["stick"]]
         for item in profile["stick"]:
-            used_inputs_list.append(item)
-    if type(profile["mouse_stick"]) != str:
-        movement_keys["mouse"]["forward"], movement_keys["mouse"]["left"], movement_keys["mouse"]["back"], movement_keys["mouse"]["right"] = [x for x in profile["mouse_stick"]]
+            if item not in new_used_inputs.keys():
+                new_used_inputs[item] = []
+            
+    if not isinstance(profile["mouse_stick"], str):
+        new_used_inputs["movement_keys"]["mouse"]["forward"], new_used_inputs["movement_keys"]["mouse"]["left"], new_used_inputs["movement_keys"]["mouse"]["back"], new_used_inputs["movement_keys"]["mouse"]["right"] = [x for x in profile["mouse_stick"]]
         for item in profile["mouse_stick"]:
-            used_inputs_list.append(item)
-    used_inputs = tuple(used_inputs_list)
-    used_xinputs = tuple(used_xinputs_list)
+            if item not in new_used_inputs.keys():
+                new_used_inputs[item] = []
+
+    used_inputs["inputs"] = deepcopy(new_used_inputs)
+    used_inputs["xinputs"] = deepcopy(new_used_xinputs)
     set_used_thumbsticks()
 
 
 def set_used_thumbsticks():
-    global used_sticks
-    used_sticks["left"] = profile["stick"] == "xinput-l" or (settings["mouse"] == "cyro" and profile["mouse_stick"] == "xinput-l")
-    used_sticks["right"] = profile["stick"] == "xinput-r" or (settings["mouse"] == "cyro" and profile["mouse_stick"] == "xinput-r")
+    global new_used_inputs
+    new_used_inputs["sticks"]["left"] = profile["stick"] == "xinput-l" or (settings["mouse"] == "cyro" and profile["mouse_stick"] == "xinput-l")
+    new_used_inputs["sticks"]["right"] = profile["stick"] == "xinput-r" or (settings["mouse"] == "cyro" and profile["mouse_stick"] == "xinput-r")
 
 
 def create_new_profile():
@@ -234,29 +251,28 @@ def save_profile(profile:dict):
     load_profile(settings["loaded_profile"])
 
 
-def input_handler(input:int|str, on:bool):
-    for key, values in profile["azeron_keys"].items():
-        if input in values:
-            app.set_image_visibility(f"azeron_button_{key}", on)
+def input_handler(input:int|str, state:bool):
+    if isinstance(input, str):
+        for keycode in new_used_inputs["xinputs"][input]:
+            app.set_image_visibility(keycode, state)
+    else:
+        for keycode in new_used_inputs["inputs"][input]:
+            app.set_image_visibility(keycode, state)
 
-    for key, values in profile["mouse_keys"].items():
-        if input in values:
-            app.set_image_visibility(f"mouse_button_{key}", on)
 
-
-def wasd_handler(new_pressed_movement_keys:tuple, thumbstick_type="azeron"):
+def wasd_handler(new_pressed_movement_keys:tuple, thumbstick_type:str="azeron"):
     global pressed_movement_keys
 
     x, y = 0, 0
 
-    if movement_keys[thumbstick_type]["forward"] in new_pressed_movement_keys:
+    if new_used_inputs["movement_keys"][thumbstick_type]["forward"] in new_pressed_movement_keys:
         y += 1
-    if movement_keys[thumbstick_type]["back"] in new_pressed_movement_keys:
+    if new_used_inputs["movement_keys"][thumbstick_type]["back"] in new_pressed_movement_keys:
         y -= 1
     
-    if movement_keys[thumbstick_type]["right"] in new_pressed_movement_keys:
+    if new_used_inputs["movement_keys"][thumbstick_type]["right"] in new_pressed_movement_keys:
         x += 1
-    if movement_keys[thumbstick_type]["left"] in new_pressed_movement_keys:
+    if new_used_inputs["movement_keys"][thumbstick_type]["left"] in new_pressed_movement_keys:
         x -= 1
     
     #wasq [87, 65, 83, 81]
@@ -308,7 +324,7 @@ def wasd_handler(new_pressed_movement_keys:tuple, thumbstick_type="azeron"):
 
 i = 0
 def main_input_loop():
-    global i, mouse_speed_indicator, xinput_presses, key_presses, mouse_pos, left_stick_pos, right_stick_pos, mouse_move_time
+    global i, mouse_speed_indicator, pressed_keys, mouse_pos, left_stick_pos, right_stick_pos, mouse_move_time
     while True:
         i += 1
         sleep(0.01)
@@ -316,16 +332,16 @@ def main_input_loop():
         current_time = time()
 
 
-        new_key_presses = get_pressed_inputs()
-        for key in tuple(set(new_key_presses)-set(key_presses)): #on press
+        new_pressed_keys = get_pressed_inputs()
+        for key in tuple(set(new_pressed_keys)-set(pressed_keys)): #on press
             input_handler(key, True)
-        for key in tuple(set(key_presses)-set(new_key_presses)): #on release
+        for key in tuple(set(pressed_keys)-set(new_pressed_keys)): #on release
             input_handler(key, False)
             
-        key_presses = tuple(new_key_presses)
+        pressed_keys = tuple(new_pressed_keys)
 
 
-        if used_sticks["left"]:
+        if new_used_inputs["sticks"]["left"]:
             new_left_stick_pos = get_thumbstick_pos()
             if new_left_stick_pos != left_stick_pos:
                 if profile["stick"] == "xinput-l":
@@ -336,7 +352,7 @@ def main_input_loop():
                 left_stick_pos = tuple(new_left_stick_pos)
                 
 
-        if used_sticks["right"]:
+        if new_used_inputs["sticks"]["right"]:
             new_right_stick_pos = get_thumbstick_pos(right=True)
             if new_right_stick_pos != right_stick_pos:
                 if profile["stick"] == "xinput-r":
@@ -346,13 +362,13 @@ def main_input_loop():
                     app.move_image("mouse_thumbstick_cap", 533+int(((new_right_stick_pos[0] - -32767) / (32767 - -32767)) * (17 - -17) + -17), 270-int(((new_right_stick_pos[1] - -32767) / (32767 - -32767)) * (17 - -17) + -17))
                 right_stick_pos = tuple(new_right_stick_pos)
 
-        if type(profile["stick"]) == list:
-            new_pressed_movement_keys = tuple(set(key_presses)&set(movement_keys["azeron"].values()))
+        if isinstance(profile["stick"], list):
+            new_pressed_movement_keys = tuple(set(pressed_keys)&set(new_used_inputs["movement_keys"]["azeron"].values()))
             if new_pressed_movement_keys != pressed_movement_keys["azeron"]:
                 wasd_handler(new_pressed_movement_keys)
 
-        if (type(profile["mouse_stick"]) == list and settings["mouse"] == "cyro"):
-            new_pressed_movement_keys = tuple(set(key_presses)&set(movement_keys["mouse"].values()))
+        if (isinstance(profile["mouse_stick"], list) and settings["mouse"] == "cyro"):
+            new_pressed_movement_keys = tuple(set(pressed_keys)&set(new_used_inputs["movement_keys"]["mouse"].values()))
             if new_pressed_movement_keys != pressed_movement_keys["mouse"]:
                 wasd_handler(new_pressed_movement_keys, thumbstick_type="mouse")
 
@@ -393,22 +409,9 @@ def main_input_loop():
             app.set_image_visibility(f"mouse_scroll_down", False)
 
 
-main_thread = Thread(target=main_input_loop, daemon=True)
-scroll_wheel_thread = Thread(target=scroll_wheel_listener, daemon=True)
-
-
-
-with open("settings.json", "r") as f:
-    settings = json_load(f)
-
-load_profile(settings["loaded_profile"])
-
-mouse_pos = get_mouse_pos()
-
-
 
 class AzeronOverlayMainWindow:
-    def __init__(self, root):
+    def __init__(self, root:tk.Tk):
         self.button_edit_items = []
         self.set_button_labels = []
         self.thumbstick_wasd_buttons = []
@@ -518,7 +521,7 @@ class AzeronOverlayMainWindow:
         self.button_edit_items.append(label)
 
 
-        def update_item_button(key_type:str, key_name:str, old_name, listbox_index):
+        def update_item_button(key_type:str, key_name:str, old_name:str, listbox_index:int):
             key = ()
             label = tk.Label(self.edit_profile_window, text="Press Something...", font=("Arial", 27))
             label.place(x=150, y=402)
@@ -535,7 +538,7 @@ class AzeronOverlayMainWindow:
             else:
                 self.new_profile[key_type][key_name] = [key if x == old_name else x for x in self.new_profile[key_type][key_name]]
             listbox.delete(listbox_index)
-            if type(key) == str:
+            if isinstance(key, str):
                 pass
             else:
                 key = button_map.keyboard[key]
@@ -545,7 +548,7 @@ class AzeronOverlayMainWindow:
             self.delete_button.destroy()
 
         
-        def delete_item_button(index, key_type, key_name, selected_item):
+        def delete_item_button(index:int, key_type:str, key_name:str, selected_item:str):
             listbox.delete(index)
             if selected_item != "empty":
                 self.new_profile[key_type][key_name].remove(get_key_from_value(button_map.keyboard, selected_item))
@@ -554,7 +557,7 @@ class AzeronOverlayMainWindow:
             self.delete_button.destroy()
         
 
-        def on_select(event):
+        def on_select(event:tk.Event):
             listbox = event.widget
             index = listbox.curselection()
             if not index:
@@ -562,7 +565,6 @@ class AzeronOverlayMainWindow:
             
             selected_item = listbox.get(index)
             key_type, key_name = listbox._name.split("|")
-            #print(f"Type: {key_type} Key: {key_name} Selected: {selected_item}")
 
             self.record_button = tk.Button(self.edit_profile_window, text="Set Key", width=10, height=5, command=lambda: Thread(target=update_item_button, args=(key_type, key_name, get_key_from_value(button_map.keyboard, selected_item), index)).start())
             self.record_button.place(x=150, y=282)
@@ -573,7 +575,7 @@ class AzeronOverlayMainWindow:
             self.button_edit_items.append(self.delete_button)
 
 
-        def change_movement_buttons(index, old_keycode, button):
+        def change_movement_buttons(index:int, old_keycode:int, button:tk.Button):
             key = ()
             label = tk.Label(self.edit_profile_window, text="Press a key...", font=("Arial", 27))
             label.place(x=150, y=402)
@@ -599,7 +601,7 @@ class AzeronOverlayMainWindow:
 
         def toggle_thumbstick():
             if self.stick_type.get() == "Keyboard":
-                if type(self.new_profile[self.thumbstick_key]) == list:
+                if isinstance(self.new_profile[self.thumbstick_key], list):
                     return
                 for item in self.thumbstick_xinput_buttons:
                     try:
@@ -638,7 +640,7 @@ class AzeronOverlayMainWindow:
                 self.thumbstick_wasd_buttons.append(right_button)
 
             else:
-                if type(self.new_profile[self.thumbstick_key]) == str:
+                if isinstance(self.new_profile[self.thumbstick_key], str):
                     return
                 for item in self.thumbstick_wasd_buttons:
                     try:
@@ -666,7 +668,7 @@ class AzeronOverlayMainWindow:
             label.place(x=1, y=300)
             self.button_edit_items.append(label)
 
-            if type(self.new_profile[self.thumbstick_key]) == str:
+            if isinstance(self.new_profile[self.thumbstick_key], str):
                 self.stick_type = tk.StringVar(value="XInput")
                 self.active_thumbstick = tk.StringVar(value=self.new_profile[self.thumbstick_key])
                 left_stick_button =  tk.Radiobutton(self.edit_profile_window, text="Left",  variable=self.active_thumbstick, value="xinput-l",  command=change_thumbstick)
@@ -939,8 +941,7 @@ class AzeronOverlayMainWindow:
             tk.Button(self.edit_profile_window, text="18", command=lambda: self.button_edit_stuff("18", "keypad"), width=5, height=2).place(x=210, y=10)
 
         self.edit_profile_canvas.create_line(0, 280, 750, 280, width=3, fill="black")
-
-        
+      
 
     def update_profiles_menu(self):
         # Clear the existing profiles menu
@@ -984,7 +985,6 @@ class AzeronOverlayMainWindow:
         for key, value in dict(self.images).items():
             self.canvas.delete(value[1])
             del self.images[key]
-
 
 
     def create_mouse_overlay(self):
@@ -1109,7 +1109,7 @@ class AzeronOverlayMainWindow:
                 self.add_overlay_image(f"assets\\azeron\\edit_numbers\\cyborg.png", "azeron_edit_cyborg", visible=False)
 
 
-    def add_overlay_image(self, image_path, key, x=0, y=0, visible=True):
+    def add_overlay_image(self, image_path:str, key:str, x:int=0, y:int=0, visible:bool=True):
         overlay_photo = ImageTk.PhotoImage(Image.open(image_path))
         image_id = self.canvas.create_image(x, y, anchor="nw", image=overlay_photo)
         self.images[key] = [overlay_photo, image_id]
@@ -1118,7 +1118,7 @@ class AzeronOverlayMainWindow:
 
 
     def set_image_visibility(self, key:str, visibility:bool):
-        if type(key) != int:
+        if not isinstance(key, int):
             if key not in self.images.keys():
                 return
             key = int(self.images[key][1])
@@ -1142,6 +1142,16 @@ class AzeronOverlayMainWindow:
 
 
 if __name__ == "__main__":
+    main_thread = Thread(target=main_input_loop, daemon=True)
+    scroll_wheel_thread = Thread(target=scroll_wheel_listener, daemon=True)
+
+    with open("settings.json", "r") as f:
+        settings = json_load(f)
+
+    load_profile(settings["loaded_profile"])
+    
+    mouse_pos = get_mouse_pos()
+
     root = tk.Tk()
     icon_image = Image.open("assets\\icon\\icon.png")
     icon_photo = ImageTk.PhotoImage(icon_image)
