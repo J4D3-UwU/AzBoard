@@ -502,7 +502,7 @@ def main_input_loop():
             if new_pressed_movement_keys != pressed_movement_keys["mouse"]:
                 wasd_handler(new_pressed_movement_keys, thumbstick_type="mouse")  # Call handler for mouse movement
 
-        # Update mouse speed indicator every 5 iterations
+        # Update mouse speed/movement indicator every 5 iterations
         if i % 5 == 0:
             new_mouse_pos = get_mouse_pos()  # Get the current mouse position
             
@@ -512,16 +512,18 @@ def main_input_loop():
                 speed = math_sqrt((new_mouse_pos[0] - mouse_pos[0]) ** 2 + (new_mouse_pos[1] - mouse_pos[1]) ** 2) / max((current_time - mouse_move_time), 0.00001)
                 direction = math_degrees(math_atan2((new_mouse_pos[1] - mouse_pos[1]), (new_mouse_pos[0] - mouse_pos[0])))
                 
-                # Normalize direction to be in the range of [0, 360)
+                # Normalize direction to be in the range of 0-360
                 if direction < 0:
                     direction += 360
 
+                sensitivity = 15000 / max(settings["sensitivity"], 0.00000001)
+
                 # Cap speed at 15000
-                if speed > 15000:
-                    speed = 15000
+                if speed > sensitivity:
+                    speed = sensitivity
                 
-                # Normalize speed to a range suitable for the application
-                speed = int(((speed - 0) / (15000 - 0)) * (72 - 0) + 0)
+                # Normalize speed to 0-72
+                speed = int(((speed - 0) / (sensitivity - 0)) * (72 - 0) + 0)
 
                 # Calculate new position for the movement indicator
                 angle_rad = math_radians(direction)
@@ -530,7 +532,7 @@ def main_input_loop():
                 # Move the movement indicator image
                 app.move_image("movement_indicator", position[0], position[1])
                 
-                # If there is a mouse speed indicator, delete it
+                # If there is a mouse speed indicator line, delete it
                 if mouse_speed_indicator is not None:
                     app.canvas.delete(mouse_speed_indicator)
                     mouse_speed_indicator = None
@@ -594,12 +596,11 @@ class AzeronOverlayMainWindow:
         self.create_azeron_overlay()  # Method to create Azeron overlay elements
 
 
-
     def open_settings_window(self):
         # Create a new settings window as a top-level window
         settings_window = tk.Toplevel(root)
         settings_window.title("Settings")  # Set the title of the settings window
-        settings_window.geometry("300x200")  # Set the size of the window
+        settings_window.geometry("300x250")  # Set the size of the window
         settings_window.grab_set()  # Ensure this window is modal and grabs all input
         settings_window.resizable(False, False)  # Prevent resizing of the window
 
@@ -621,6 +622,28 @@ class AzeronOverlayMainWindow:
         mouse_menu = tk.OptionMenu(settings_window, mouse_var, "g403", "g502", "cyro")  # Create option menu
         mouse_menu.pack(anchor="w", padx=15)  # Pack the menu into the window
 
+        def validate_input(new_value):
+            # Allow empty string (to handle backspace)
+            if new_value == "":
+                return True
+            if len(str(new_value)) > 5:
+                return False
+            
+            try:
+                if float(new_value) > 10:
+                    return False
+                return True
+            except ValueError:
+                return False
+
+        # Create an Entry widget with validation
+        vcmd = (root.register(validate_input), '%P')
+
+        tk.Label(settings_window, text="Sensitivity:").pack(anchor="w", padx=10, pady=5)
+        sensitivity_var = tk.StringVar(value=settings["sensitivity"])
+        entry = tk.Entry(settings_window, validate='key', validatecommand=vcmd, width=5, textvariable=sensitivity_var)
+        entry.pack(anchor="w", padx=15)
+
         # Function to handle saving settings and closing the window
         def delete_window():
             global settings  # Use global settings variable
@@ -628,6 +651,8 @@ class AzeronOverlayMainWindow:
             new_settings["model"] = model_var.get()  # Update model in new settings
             new_settings["color"] = color_var.get()  # Update color in new settings
             new_settings["mouse"] = mouse_var.get()  # Update mouse in new settings
+            sensitivity = float(sensitivity_var.get())
+            new_settings["sensitivity"] = sensitivity  # Update mouse sensitivity in new settings
             
             # Check if the new settings are different from the current settings
             if new_settings != settings:
@@ -1196,7 +1221,7 @@ class AzeronOverlayMainWindow:
                 return
             # If so, delete the profile, and load a random profile
             os_remove(profile_name)
-            edit_settings("loaded_profile", f"profiles\\{[f for f in os_listdir("profiles") if f.endswith('.json')][0]}")
+            edit_settings("loaded_profile", f"profiles\\{[f for f in os_listdir('profiles') if f.endswith('.json')][0]}")
             self.update_profiles_menu()
         
         # Check if there is more than 1 profile
@@ -1254,7 +1279,7 @@ class AzeronOverlayMainWindow:
         # Check is the current mouse is the Cyro
         elif settings["mouse"] == "cyro":
             # If so, Create the Cyro Overlay
-            self.add_overlay_image("assets\\mouse\\cyro\\base.png", "mouse_base")
+            self.add_overlay_image(f"assets\\mouse\\cyro\\colors\\{settings['color']}.png", "mouse_base")
             self.add_overlay_image("assets\\mouse\\cyro\\stick\\cap.png", "mouse_thumbstick_cap", 533, 270)
             self.add_overlay_image("assets\\mouse\\cyro\\stick\\pressed.png", "mouse_button_22", 533, 270, visible=False)
             self.add_overlay_image("assets\\mouse\\cyro\\pressed\\1.png", "mouse_button_1", visible=False)
@@ -1289,7 +1314,7 @@ class AzeronOverlayMainWindow:
     def create_azeron_overlay(self):
         # Create the mouse overlay
         # Add all the base images
-        self.add_overlay_image(f"assets\\azeron\\colors\\{settings["color"]}\\base.png", "azeron_base")
+        self.add_overlay_image(f"assets\\azeron\\colors\\{settings['color']}\\base.png", "azeron_base")
         self.add_overlay_image("assets\\azeron\\stick\\cap.png", "thumbstick_cap", 394, 323)
         self.add_overlay_image("assets\\azeron\\stick\\pressed.png", "azeron_button_23", 394, 323, visible=False)
         self.add_overlay_image("assets\\azeron\\pressed\\1.png", "azeron_button_1", visible=False)
@@ -1320,8 +1345,8 @@ class AzeronOverlayMainWindow:
         # Check if the selected model is the cyborg2
         if settings["model"] == "cyborg2":
             # If so, add the cyborg2 images
-            self.add_overlay_image(f"assets\\azeron\\colors\\{settings["color"]}\\cyborg.png", "azeron_cyborg")
-            self.add_overlay_image(f"assets\\azeron\\colors\\{settings["color"]}\\cyborg2.png", "azeron_cyborg2")
+            self.add_overlay_image(f"assets\\azeron\\colors\\{settings['color']}\\cyborg.png", "azeron_cyborg")
+            self.add_overlay_image(f"assets\\azeron\\colors\\{settings['color']}\\cyborg2.png", "azeron_cyborg2")
             self.add_overlay_image("assets\\azeron\\pressed\\cyborg2\\20.png", "azeron_button_20", visible=False)
             self.add_overlay_image("assets\\azeron\\pressed\\cyborg2\\41.png", "azeron_button_41", visible=False)
             self.add_overlay_image("assets\\azeron\\pressed\\cyborg\\13.png", "azeron_button_13", visible=False)
@@ -1333,20 +1358,20 @@ class AzeronOverlayMainWindow:
             self.add_overlay_image(f"assets\\azeron\\edit_numbers\\cyborg2.png", "azeron_edit_cyborg2", visible=False)
         else:
             # If not, add the classic 20 image
-            self.add_overlay_image(f"assets\\azeron\\colors\\{settings["color"]}\\classic_20.png", "azeron_classic_20")
+            self.add_overlay_image(f"assets\\azeron\\colors\\{settings['color']}\\classic_20.png", "azeron_classic_20")
             self.add_overlay_image("assets\\azeron\\pressed\\20.png", "azeron_button_20", visible=False)
             self.add_overlay_image(f"assets\\azeron\\edit_numbers\\classic_20.png", "azeron_edit_classic_20", visible=False)
             # Check if the selected model is the classic
             if settings["model"] == "classic":
                 # If so, add the classic images
-                self.add_overlay_image(f"assets\\azeron\\colors\\{settings["color"]}\\classic.png", "azeron_classic")
+                self.add_overlay_image(f"assets\\azeron\\colors\\{settings['color']}\\classic.png", "azeron_classic")
                 self.add_overlay_image("assets\\azeron\\pressed\\classic\\13.png", "azeron_button_13", visible=False)
                 self.add_overlay_image("assets\\azeron\\pressed\\classic\\18.png", "azeron_button_18", visible=False)
                 self.add_overlay_image(f"assets\\azeron\\edit_numbers\\classic.png", "azeron_edit_classic", visible=False)
             # Check if the selected model is the cyborg
             elif settings["model"] == "cyborg":
                 # If so, add the cyborg images
-                self.add_overlay_image(f"assets\\azeron\\colors\\{settings["color"]}\\cyborg.png", "azeron_cyborg")
+                self.add_overlay_image(f"assets\\azeron\\colors\\{settings['color']}\\cyborg.png", "azeron_cyborg")
                 self.add_overlay_image("assets\\azeron\\pressed\\cyborg\\13.png", "azeron_button_13", visible=False)
                 self.add_overlay_image("assets\\azeron\\pressed\\cyborg\\18.png", "azeron_button_18", visible=False)
                 self.add_overlay_image("assets\\azeron\\pressed\\cyborg\\36.png", "azeron_button_36", visible=False)
